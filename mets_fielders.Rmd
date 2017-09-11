@@ -1,0 +1,94 @@
+---
+title: "Finding the best Mets fielder using the Lahman MLB database"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+We are going to look at how to pull MLB data using the Lahman database which we can connect to through R. 
+First lets load up some packages. Lahman provides access to the extensive Lahman data base. We are going to go and try to see who the best Mets Fielder is in franchise history. 
+
+```{r library, message=FALSE, warning=FALSE}
+needs(tidyverse, Lahman, DT, lubridate)
+```
+
+Let's open up the Fielding table and try to see if we can quickly query from it. 
+
+```{r look_fielding}
+data(Fielding)
+datatable(head(Fielding, n = 50))
+```
+
+At first glance we are going to need to figure out a way to get cleaned up TeamID and Player ID. But overall, this table looks like it will be what we can ultimately use. Let's now take a look at the TeamFranchises table and see how we can creat a clean lookup. 
+
+```{r look_teams}
+data(TeamsFranchises)
+datatable(TeamsFranchises)
+```
+
+There look to be two options we can use: "New York Mets" (NYM) and "New York Metropolitans" (NYP). The New York Mets is the one we will most likely use, but lets take a look at the new york metropolitans
+
+```{r nymetro}
+filter(TeamsFranchises, franchName %in% c("New York Metropolitans", "New York Mets"))
+data(Teams)
+paste(as.character(min(Teams[Teams$franchID == "NYP",]$yearID)), as.character(max(Teams[Teams$franchID == "NYP",]$yearID)), sep = " - ")
+
+```
+
+
+Lets just stick with the Mets since the metropolitans team was so old. We have the franchID for the Mets, but we need the teamID:
+```{r get_teamID}
+as.character(unique(Teams[Teams$franchID == "NYM", ]$teamID))
+```
+
+
+Getting back to finding the best fielders...
+We are going to gather the Putouts, Assists and errors for each player on the mets. We can then calculate a fielding percentage which is:
+$$\frac{Putouts+Assists}{Putouts+Assists+Errors}$$
+
+```{r mets_fielders}
+#Filter to players who have had at least one modern length season of play under their belt for the mets
+mets_fielding <- Fielding %>% 
+  filter(teamID == "NYN") %>% 
+  select(playerID, GS, PO, A, E) %>% 
+  group_by(playerID) %>% 
+  summarise_all(function(x) {sum(x, na.rm = TRUE)}) %>% 
+  filter(GS >= 162) %>% 
+  mutate(Fielding_pct = (PO + A)/(PO + A + E)) %>% 
+  arrange(desc(Fielding_pct))
+
+datatable(mets_fielding)
+
+```
+
+
+This is great. But lets figure out a way to get cleam player names:
+```{r playerLookup}
+data(Master)
+player_lookup <- Master %>% 
+  transmute(playerID = playerID, 
+            playerName = paste(nameFirst, nameLast, sep = " "), 
+            Year_Active = ymd(debut) + ((ymd(finalGame) - ymd(debut))/2)) 
+  
+```
+
+Now lets join the nameGiven to the mets fielders:
+```{r clean_mets}
+mets_fielding <- mets_fielding %>% 
+  left_join(player_lookup, by = "playerID") %>% 
+  select(playerName, Year_Active, GS, Fielding_pct)
+
+datatable(mets_fielding)
+
+```
+
+Turns out it is Rico Brogna. Some interesting findings were to see John Olerud barely sneak past Keith Hernandez. Also Gary Carter is one position higher than Mike Piazza. 
+
+
+
+
+
+
+
